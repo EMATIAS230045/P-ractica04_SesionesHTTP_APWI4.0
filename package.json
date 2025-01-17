@@ -1,0 +1,19 @@
+{
+  "name": "p-ractica04_sesioneshttp_apwi4.0",
+  "version": "1.0.0",
+  "description": "Realizar un ejemplo de aplicación web basada en el TechStack de NodeJS, Express que permita controlar las Sesiones y que registre los siguientes datos en las variables de sesión:",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "moment-timezone": "^0.5.46",
+    "session": "^0.1.0",
+    "uuid": "^11.0.5"
+  }
+}

@@ -2,12 +2,13 @@ import express from "express";
 import sessions from "express-session";
 import bodyParser from "body-parser";
 import { v4 as uuidv4 } from "uuid";
+import os from "os";
 
 const app = express();
 const Port = 3000;
 app.use(
     session({
-        secret:'P3-MARCH#BOTsito-sesionesPersistenetes',
+        secret:'P4-EMGM#BOTsito-sesionesPersistenetes',
         resave: false,
         saveUninitialized: false,
         cookie: { maxAge: 5* 60 *1000} // 1 día
@@ -97,6 +98,22 @@ app.get("/status", (req, res) => {
     session: sessionStore[sessionId],
   });
 });
+
+app.get('/', (req, res)=>{
+  return res.status(200).json({message: "Bienvenid@ a la api de control de sesiones ",
+                               author: "T.S.U Erick Matias Granillo Mejia." })
+})
+//Funcion de utilidad que nos permite acceder a la informacion de la interfaz de red 
+const getServerNetworkInfo = () => {
+const interfaces = os.networkInterfaces()
+for (const name in interfaces){
+      for(const iface of interfaces[name]){
+        if(iface.family === 'IPv4' && !iface.internal){
+          return {serverIp: iface.address, serverMac: iface.mac};
+        }
+      }
+}
+}
 
 // Iniciar el servidor
 app.listen(Port, () => {

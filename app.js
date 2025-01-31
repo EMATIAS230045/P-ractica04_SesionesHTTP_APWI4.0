@@ -14,7 +14,7 @@ const Port = 3000;
 
 // Configuración de MongoDB
 const mongoUri = process.env.MONGO_URI;
-const dbName = "sesionesDB";
+const dbName = "SesionesDB";
 let sesionesCollection;
 
 (async () => {
@@ -35,7 +35,7 @@ app.use(
     secret: process.env.SESSION_SECRET || "defaultSecret",
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 5 * 60 * 1000 }, // 5 minutos
+    cookie: { maxAge: 5 * 60 * 1000 }, // 5 minutos en milisegundos
   })
 );
 
@@ -157,7 +157,7 @@ app.put("/update", async (req, res) => {
   res.status(200).json({ message: "Sesión actualizada", sessionId });
 });
 
-// Endpoint: Session Status
+// Endpoint: Session Status con cierre automático por inactividad
 app.get("/status", async (req, res) => {
   const { sessionId } = req.query;
 
@@ -172,8 +172,19 @@ app.get("/status", async (req, res) => {
   }
 
   const now = new Date();
-  const duration = Math.floor((now - new Date(session.createdAt)) / 1000);
-  const inactivity = Math.floor((now - new Date(session.lastAccessed)) / 1000);
+  const duration = Math.floor((now - new Date(session.createdAt)) / 1000); // en segundos
+  const inactivity = Math.floor((now - new Date(session.lastAccessed)) / 1000); // en segundos
+
+  const maxInactivity = 2 * 60; // 2 minutos en segundos
+
+  if (inactivity >= maxInactivity) {
+    await sesionesCollection.updateOne(
+      { sessionId },
+      { $set: { status: "Finalizada" } }
+    );
+
+    return res.status(403).json({ message: "Sesión cerrada por inactividad" });
+  }
 
   res.status(200).json({
     message: "Sesión activa",

@@ -13,7 +13,7 @@ const app = express();
 const Port = 3000;
 
 // Configuración de MongoDB
-const mongoUri = process.env.MONGO_URI;
+const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017";
 const dbName = "SesionesDB";
 let sesionesCollection;
 
@@ -94,8 +94,8 @@ app.post("/login", async (req, res) => {
     nickname,
     macAddress,
     clientIp: getClientIP(req),
-    serverIp: serverInfo.serverIp,
-    serverMac: serverInfo.serverMac,
+    serverIp: serverInfo?.serverIp || "Desconocido",
+    serverMac: serverInfo?.serverMac || "Desconocido",
     createdAt: now,
     lastAccessed: now,
     inactiveTime: 0,
@@ -175,12 +175,12 @@ app.get("/status", async (req, res) => {
   const duration = Math.floor((now - new Date(session.createdAt)) / 1000); // en segundos
   const inactivity = Math.floor((now - new Date(session.lastAccessed)) / 1000); // en segundos
 
-  const maxInactivity = 2 * 60; // 2 minutos en segundos
+  const maxInactivity = 10 * 60; // 10 minutos en segundos
 
   if (inactivity >= maxInactivity) {
     await sesionesCollection.updateOne(
       { sessionId },
-      { $set: { status: "Finalizada" } }
+      { $set: { status: "Inactiva" } }
     );
 
     return res.status(403).json({ message: "Sesión cerrada por inactividad" });
@@ -194,6 +194,16 @@ app.get("/status", async (req, res) => {
       inactivity,
     },
   });
+});
+
+// ✅ Nuevo Endpoint: Obtener todas las sesiones activas
+app.get("/sesiones", async (req, res) => {
+  try {
+    const sesiones = await sesionesCollection.find({ status: "Activa" }).toArray();
+    res.status(200).json(sesiones);
+  } catch (err) {
+    res.status(500).json({ message: "Error al obtener sesiones", error: err });
+  }
 });
 
 // Endpoint: Bienvenida

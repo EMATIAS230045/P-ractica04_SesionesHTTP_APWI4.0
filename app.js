@@ -5,24 +5,29 @@ import dotenv from "dotenv";
 import { v4 as uuidv4 } from "uuid";
 import os from "os";
 import { MongoClient } from "mongodb";
+import moment from "moment-timezone";
 
 // Cargar variables de entorno desde .env
 dotenv.config();
 
-const app = express();
+const app = express(); 
 const Port = 3000;
-
+ 
 // Configuración de MongoDB
 const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017";
 const dbName = "SesionesDB";
 let sesionesCollection;
 
 (async () => {
-  const client = new MongoClient(mongoUri);
-  await client.connect();
-  const db = client.db(dbName);
-  sesionesCollection = db.collection("sesiones");
-  console.log("Conectado a MongoDB");
+  try {
+    const client = new MongoClient(mongoUri);
+    await client.connect();
+    const db = client.db(dbName);
+    sesionesCollection = db.collection("sesiones");
+    console.log("✅ Conectado a MongoDB");
+  } catch (error) {
+    console.error("❌ Error conectando a MongoDB:", error);
+  }
 })();
 
 // Middleware para procesar JSON y formularios
@@ -39,7 +44,7 @@ app.use(
   })
 );
 
-// Obtener información de la red del servidor
+// Función para obtener información de la red del servidor
 const getServerNetworkInfo = () => {
   const interfaces = os.networkInterfaces();
   for (const name in interfaces) {
@@ -51,14 +56,15 @@ const getServerNetworkInfo = () => {
   }
 };
 
-// Obtener IP del cliente
+// Función para obtener la IP del cliente
+// Función para obtener la IP del cliente sin el prefijo "::ffff:"
 const getClientIP = (req) => {
-  return (
+  const rawIp =
     req.headers["x-forwarded-for"] ||
     req.connection.remoteAddress ||
     req.socket.remoteAddress ||
-    req.connection.socket?.remoteAddress
-  );
+    req.connection.socket?.remoteAddress;
+  return typeof rawIp === "string" ? rawIp.replace(/^::ffff:/, "") : rawIp;
 };
 
 // Endpoint: Login
@@ -73,9 +79,12 @@ app.post("/login", async (req, res) => {
 
   if (existingSession) {
     const now = new Date();
+    const formattedNow = moment(now)
+      .tz("America/Mexico_City")
+      .format("YYYY-MM-DD HH:mm:ss");
     await sesionesCollection.updateOne(
       { sessionId: existingSession.sessionId },
-      { $set: { lastAccessed: now, inactiveTime: 0 } }
+      { $set: { lastAccessed: formattedNow, inactiveTime: 0 } }
     );
 
     return res.status(200).json({
@@ -86,6 +95,9 @@ app.post("/login", async (req, res) => {
 
   const sessionId = uuidv4();
   const now = new Date();
+  const formattedNow = moment(now)
+    .tz("America/Mexico_City")
+    .format("YYYY-MM-DD HH:mm:ss");
   const serverInfo = getServerNetworkInfo();
 
   const newSession = {
@@ -96,8 +108,8 @@ app.post("/login", async (req, res) => {
     clientIp: getClientIP(req),
     serverIp: serverInfo?.serverIp || "Desconocido",
     serverMac: serverInfo?.serverMac || "Desconocido",
-    createdAt: now,
-    lastAccessed: now,
+    createdAt: formattedNow,
+    lastAccessed: formattedNow,
     inactiveTime: 0,
     status: "Activa",
   };
@@ -118,15 +130,9 @@ app.post("/logout", async (req, res) => {
     return res.status(400).json({ message: "Se espera sessionId" });
   }
 
-  const session = await sesionesCollection.findOne({ sessionId });
-
-  if (!session) {
-    return res.status(404).json({ message: "Sesión no encontrada" });
-  }
-
   await sesionesCollection.updateOne(
     { sessionId },
-    { $set: { status: "Finalizada" } }
+    { $set: { status: "Finalizada por el Usuario" } }
   );
 
   res.status(200).json({ message: "Logout exitoso" });
@@ -140,13 +146,10 @@ app.put("/update", async (req, res) => {
     return res.status(400).json({ message: "Se espera sessionId" });
   }
 
-  const session = await sesionesCollection.findOne({ sessionId });
+  const now = moment()
+    .tz("America/Mexico_City")
+    .format("YYYY-MM-DD HH:mm:ss");
 
-  if (!session) {
-    return res.status(404).json({ message: "Sesión no encontrada" });
-  }
-
-  const now = new Date();
   const updates = { lastAccessed: now };
 
   if (email) updates.email = email;
@@ -157,7 +160,7 @@ app.put("/update", async (req, res) => {
   res.status(200).json({ message: "Sesión actualizada", sessionId });
 });
 
-// Endpoint: Session Status con cierre automático por inactividad
+// Endpoint: Status con cierre por inactividad
 app.get("/status", async (req, res) => {
   const { sessionId } = req.query;
 
@@ -177,6 +180,12 @@ app.get("/status", async (req, res) => {
 
   const maxInactivity = 10 * 60; // 10 minutos en segundos
 
+  // Actualizar inactiveTime en la base de datos
+  await sesionesCollection.updateOne(
+    { sessionId },
+    { $set: { inactiveTime: inactivity } }
+  );
+
   if (inactivity >= maxInactivity) {
     await sesionesCollection.updateOne(
       { sessionId },
@@ -186,8 +195,15 @@ app.get("/status", async (req, res) => {
     return res.status(403).json({ message: "Sesión cerrada por inactividad" });
   }
 
+  // Convertir las fechas a formato "YYYY-MM-DD HH:mm:ss" en la zona horaria America/Mexico_City
+  session.createdAt = moment(session.createdAt)
+    .tz("America/Mexico_City")
+    .format("YYYY-MM-DD HH:mm:ss");
+  session.lastAccessed = moment(session.lastAccessed)
+    .tz("America/Mexico_City")
+    .format("YYYY-MM-DD HH:mm:ss");
+
   res.status(200).json({
-    message: "Sesión activa",
     session: {
       ...session,
       duration,
@@ -196,25 +212,49 @@ app.get("/status", async (req, res) => {
   });
 });
 
-// ✅ Nuevo Endpoint: Obtener todas las sesiones activas
-app.get("/sesiones", async (req, res) => {
-  try {
-    const sesiones = await sesionesCollection.find({ status: "Activa" }).toArray();
-    res.status(200).json(sesiones);
-  } catch (err) {
-    res.status(500).json({ message: "Error al obtener sesiones", error: err });
+// Endpoint: Obtener todas las sesiones
+app.get("/allSessions", async (req, res) => {
+  const sesiones = await sesionesCollection.find({}).toArray();
+  res.status(200).json(sesiones);
+});
+
+// Endpoint: Obtener todas las sesiones activas
+app.get("/allCurrentSessions", async (req, res) => {
+  const sesiones = await sesionesCollection.find({ status: "Activa" }).toArray();
+  res.status(200).json(sesiones);
+});
+
+// Endpoint: Borrar todas las sesiones (⚠️ PELIGROSO)
+app.delete("/deleteAllSessions", async (req, res) => {
+  await sesionesCollection.deleteMany({});
+  res.status(200).json({ message: "Todas las sesiones han sido eliminadas" });
+});
+
+// Endpoint: Finalizar sesión por fallo de sistema
+app.post("/terminateSession", async (req, res) => {
+  const { sessionId } = req.body;
+
+  if (!sessionId) {
+    return res.status(400).json({ message: "Se espera sessionId" });
   }
+
+  await sesionesCollection.updateOne(
+    { sessionId },
+    { $set: { status: "Finalizada por Falla de Sistema" } }
+  );
+
+  res.status(200).json({ message: "Sesión finalizada por falla de sistema" });
 });
 
 // Endpoint: Bienvenida
 app.get("/", (req, res) => {
   res.status(200).json({
     message: "Bienvenido a la API de control de sesiones",
-    author: "T.S.U Erick Matías Granillo Mejía",
+    author: "Erick Matias Granillo Mejia",
   });
 });
 
 // Iniciar servidor
 app.listen(Port, () => {
-  console.log(`Servidor inicializado en http://localhost:${Port}`);
+  console.log(`🚀 Servidor corriendo en http://localhost:${Port}`);
 });
